@@ -5,6 +5,7 @@ import html
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -56,18 +57,22 @@ def stahni_jidelnicek():
     return dny
 
 
-def gemini(cesta, telo=None):
+def gemini(cesta, telo=None, pokusu=5):
     req = urllib.request.Request(
         f"https://generativelanguage.googleapis.com/v1beta/{cesta}",
         data=json.dumps(telo).encode() if telo else None,
         headers={"Content-Type": "application/json", "x-goog-api-key": os.environ["GEMINI_API_KEY"]},
     )
-    try:
-        with urllib.request.urlopen(req, timeout=120) as r:
-            return json.load(r)
-    except urllib.error.HTTPError as e:
-        print(f"Gemini {cesta.split('?')[0]} -> {e.code}: {e.read().decode()[:500]}")
-        raise
+    for pokus in range(1, pokusu + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=120) as r:
+                return json.load(r)
+        except urllib.error.HTTPError as e:
+            zprava = " ".join(e.read().decode().split())[:300]
+            print(f"Gemini {cesta.split('?')[0]} -> {e.code} (pokus {pokus}): {zprava}")
+            if e.code not in (429, 500, 503) or pokus == pokusu:
+                raise
+            time.sleep(30 * pokus)  # přetížený server – chvíli počkáme a zkusíme znovu
 
 
 def nejnovejsi_flash():
