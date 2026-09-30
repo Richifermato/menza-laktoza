@@ -5,6 +5,7 @@ import html
 import json
 import os
 import re
+import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import date, datetime
@@ -55,6 +56,26 @@ def stahni_jidelnicek():
     return dny
 
 
+def gemini(cesta, telo=None):
+    req = urllib.request.Request(
+        f"https://generativelanguage.googleapis.com/v1beta/{cesta}",
+        data=json.dumps(telo).encode() if telo else None,
+        headers={"Content-Type": "application/json", "x-goog-api-key": os.environ["GEMINI_API_KEY"]},
+    )
+    with urllib.request.urlopen(req, timeout=120) as r:
+        return json.load(r)
+
+
+def nejnovejsi_flash():
+    """Google modely přejmenovává – když výchozí zmizí, vezmeme nejnovější dostupný Flash."""
+    modely = [
+        m["name"] for m in gemini("models?pageSize=1000")["models"]
+        if "generateContent" in m.get("supportedGenerationMethods", [])
+        and re.fullmatch(r"models/gemini-[\d.]+-flash", m["name"])
+    ]
+    return max(modely, key=lambda n: [int(x) for x in re.findall(r"\d+", n)]).removeprefix("models/")
+
+
 def ohodnot(jidla):
     """Pošle všechna jídla najednou do Gemini a doplní do nich "semafor" a "duvod"."""
     seznam = "\n".join(f'{i}: {j["nazev"]}' for i, j in enumerate(jidla))
@@ -62,13 +83,14 @@ def ohodnot(jidla):
         "contents": [{"parts": [{"text": PROMPT + seznam}]}],
         "generationConfig": {"responseMimeType": "application/json", "temperature": 0},
     }
-    req = urllib.request.Request(
-        f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent",
-        data=json.dumps(telo).encode(),
-        headers={"Content-Type": "application/json", "x-goog-api-key": os.environ["GEMINI_API_KEY"]},
-    )
-    with urllib.request.urlopen(req, timeout=120) as r:
-        odpoved = json.load(r)
+    try:
+        odpoved = gemini(f"models/{MODEL}:generateContent", telo)
+    except urllib.error.HTTPError as e:
+        if e.code != 404:
+            raise
+        model = nejnovejsi_flash()
+        print(f"Model {MODEL} neexistuje, používám {model}.")
+        odpoved = gemini(f"models/{model}:generateContent", telo)
     hodnoceni = json.loads(odpoved["candidates"][0]["content"]["parts"][0]["text"])
     for h in hodnoceni:
         jidla[int(h["id"])].update(semafor=h["semafor"], duvod=h["duvod"])
