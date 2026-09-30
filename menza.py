@@ -27,6 +27,9 @@ U každého jídla urči semafor:
 - "oranzova" = může obsahovat skryté mléko (kaše, omáčky, obalování, zahuštění, pečivo) – ověřit v kuchyni
 - "cervena"  = mléčné výrobky obsahuje zjevně (smetana, sýr, máslo, jogurt v názvu nebo typicky v receptu)
 
+Buď přísný: když si nejsi jistý, zvol "oranzova". Houskový knedlík, kaše, pyré, krémové
+polévky, obalované a smažené jídlo, pečivo a moučníky nikdy nedávej jako "zelena".
+
 Vrať JSON pole objektů {"id": <číslo>, "semafor": "...", "duvod": "<krátce, max 12 slov, česky>"}
 pro každé jídlo ze vstupu, nic jiného.
 
