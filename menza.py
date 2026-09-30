@@ -62,8 +62,12 @@ def gemini(cesta, telo=None):
         data=json.dumps(telo).encode() if telo else None,
         headers={"Content-Type": "application/json", "x-goog-api-key": os.environ["GEMINI_API_KEY"]},
     )
-    with urllib.request.urlopen(req, timeout=120) as r:
-        return json.load(r)
+    try:
+        with urllib.request.urlopen(req, timeout=120) as r:
+            return json.load(r)
+    except urllib.error.HTTPError as e:
+        print(f"Gemini {cesta.split('?')[0]} -> {e.code}: {e.read().decode()[:500]}")
+        raise
 
 
 def nejnovejsi_flash():
