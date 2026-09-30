@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 
 RSS_URL = "https://jidelnicek.utb.cz/webkredit/Api/Ordering/Rss?canteenId=2"  # 2 = Výdejna U4
 SEKCE = {"Polévka", "Oběd", "Minutka", "Pizza"}  # "Steril. jídla" a "Obaly" vynecháváme
-MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
 PRAHA = ZoneInfo("Europe/Prague")
 
 PROMPT = """Jsi nutriční poradce. Hodnotíš jídla ze školní menzy pro člověka,
@@ -72,34 +72,37 @@ def gemini(cesta, telo=None, pokusu=5):
             print(f"Gemini {cesta.split('?')[0]} -> {e.code} (pokus {pokus}): {zprava}")
             if e.code not in (429, 500, 503) or pokus == pokusu:
                 raise
-            time.sleep(30 * pokus)  # přetížený server – chvíli počkáme a zkusíme znovu
+            time.sleep(20 * pokus)  # přetížený server – chvíli počkáme a zkusíme znovu
 
 
-def nejnovejsi_flash():
-    """Google modely přejmenovává – když výchozí zmizí, vezmeme nejnovější dostupný Flash."""
+def dostupne_modely():
+    """Modely Gemini Flash / Flash-Lite, které umí generateContent, od nejnovějšího."""
     modely = [
-        m["name"] for m in gemini("models?pageSize=1000")["models"]
+        m["name"].removeprefix("models/") for m in gemini("models?pageSize=1000")["models"]
         if "generateContent" in m.get("supportedGenerationMethods", [])
-        and re.fullmatch(r"models/gemini-[\d.]+-flash", m["name"])
+        and re.fullmatch(r"models/gemini-[\d.]+-flash(-lite)?", m["name"])
     ]
-    return max(modely, key=lambda n: [int(x) for x in re.findall(r"\d+", n)]).removeprefix("models/")
+    return sorted(modely, key=lambda n: ([int(x) for x in re.findall(r"\d+", n)], "lite" not in n), reverse=True)
 
 
 def ohodnot(jidla):
-    """Pošle všechna jídla najednou do Gemini a doplní do nich "semafor" a "duvod"."""
+    """Pošle všechna jídla najednou do Gemini a doplní do nich "semafor" a "duvod".
+    Google modely přejmenovává a v špičce přetěžuje – proto zkoušíme postupně víc modelů."""
     seznam = "\n".join(f'{i}: {j["nazev"]}' for i, j in enumerate(jidla))
     telo = {
         "contents": [{"parts": [{"text": PROMPT + seznam}]}],
         "generationConfig": {"responseMimeType": "application/json", "temperature": 0},
     }
-    try:
-        odpoved = gemini(f"models/{MODEL}:generateContent", telo)
-    except urllib.error.HTTPError as e:
-        if e.code != 404:
-            raise
-        model = nejnovejsi_flash()
-        print(f"Model {MODEL} neexistuje, používám {model}.")
-        odpoved = gemini(f"models/{model}:generateContent", telo)
+    for model in dict.fromkeys([MODEL] + dostupne_modely()):
+        try:
+            odpoved = gemini(f"models/{model}:generateContent", telo, pokusu=2)
+            print(f"Hodnotil model {model}.")
+            break
+        except urllib.error.HTTPError as e:
+            if e.code not in (404, 429, 500, 503):
+                raise
+    else:
+        raise RuntimeError("Žádný model Gemini teď neodpovídá.")
     hodnoceni = json.loads(odpoved["candidates"][0]["content"]["parts"][0]["text"])
     for h in hodnoceni:
         jidla[int(h["id"])].update(semafor=h["semafor"], duvod=h["duvod"])
